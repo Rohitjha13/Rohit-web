@@ -133,6 +133,13 @@
 
   window.SupabaseMediaStore = Object.freeze({
     isConfigured: () => Boolean(config?.url && config?.publishableKey),
+    onAuthStateChange(callback) {
+      return getClient().auth.onAuthStateChange(callback);
+    },
+    async updatePassword(password) {
+      const { error } = await getClient().auth.updateUser({ password });
+      throwIfError(error);
+    },
     async getAdmin() {
       return getAdminStatus();
     },
