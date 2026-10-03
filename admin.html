@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f1">
+  <meta name="description" content="Administrator access for Rohit's media collection.">
+  <title>Admin access — Rohit</title>
+  <link rel="stylesheet" href="assets/css/admin.css">
+</head>
+<body>
+  <div class="preloader" id="preloader" aria-label="Loading the administrator sign-in" role="status">
+    <div class="preloader-inner"><span class="preloader-name">R. j.</span><span class="preloader-spinner" aria-hidden="true"></span><span class="preloader-caption">Admin sign in</span></div>
+  </div>
+  <header class="topbar shell">
+    <a class="brand" href="index.html" aria-label="Rohit home"><span class="brand-mark">R</span> Rohit</a>
+    <a class="back-link" href="index.html">← Back to collection</a>
+  </header>
+  <main class="main shell">
+    <section class="card" aria-labelledby="formTitle">
+      <p class="eyebrow">Administrator access</p>
+      <h1 id="formTitle">Welcome back.</h1>
+      <p class="intro" id="formIntro">Sign in to manage published media.</p>
+      <form class="fields" id="adminForm">
+        <div class="field">
+          <label for="identifier">Admin email</label>
+          <input id="identifier" name="identifier" type="email" autocomplete="username" value="rohitjhajha2001@gmail.com" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="password-control">
+            <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Your admin password">
+            <button class="password-toggle" id="passwordToggle" type="button" aria-controls="password" aria-pressed="false">Show</button>
+          </div>
+        </div>
+        <button class="primary" id="submitButton" type="submit">Sign in securely</button>
+      </form>
+      <p class="security-note">Sign-in and media permissions are checked by Supabase. Only the approved administrator account can manage content.</p>
+      <p class="status" id="statusMessage" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <footer class="footer shell">Rohit · Administrator access</footer>
+  <script>const preloadStarted=performance.now();const revealPreloader=()=>window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),Math.max(0,2400-(performance.now()-preloadStarted)));window.addEventListener("load",revealPreloader,{once:true});window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),3000);</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
+  <script src="assets/js/supabase-config.js"></script>
+  <script src="assets/js/supabase-store.js"></script>
+  <script src="assets/js/admin.js"></script>
+</body>
+</html>

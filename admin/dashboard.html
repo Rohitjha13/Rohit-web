@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f1">
+  <meta name="description" content="Upload and manage published videos and pictures.">
+  <title>Admin dashboard — Rohit</title>
+  <link rel="stylesheet" href="../assets/css/admin.css">
+</head>
+<body>
+  <div class="preloader" id="preloader" aria-label="Loading the Rohit admin dashboard" role="status">
+    <div class="preloader-inner"><span class="preloader-name">R. j.</span><span class="preloader-spinner" aria-hidden="true"></span><span class="preloader-caption">Admin dashboard</span></div>
+  </div>
+  <header class="topbar shell">
+    <a class="brand" href="../index.html" aria-label="Rohit home"><span class="brand-mark">R</span> Rohit</a>
+    <a class="back-link" href="../index.html">View public page ↗</a>
+  </header>
+
+  <main class="dashboard-locked shell" id="dashboardLocked">
+    <section class="panel">
+      <p class="eyebrow">Administrator access</p>
+      <h1 id="lockedHeading">Checking admin login</h1>
+      <p class="panel-copy" id="lockedMessage">Sign in to access the upload dashboard.</p>
+      <a class="primary" id="loginLink" href="../admin.html?redirect=dashboard" hidden style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none">Admin login</a>
+    </section>
+  </main>
+
+  <div class="dashboard-app shell" id="dashboardApp" hidden>
+    <main class="dashboard-main">
+      <div class="dashboard-heading">
+        <div>
+          <p class="eyebrow">Administrator area</p>
+          <h1>Manage your collection.</h1>
+          <p>Upload content here; published media is available to visitors across devices.</p>
+        </div>
+        <button class="logout" id="signOutButton" type="button">Sign out</button>
+      </div>
+
+      <div class="dashboard-grid">
+        <section class="panel" aria-labelledby="uploadHeading">
+          <h2 id="uploadHeading">Publish new content</h2>
+          <p class="panel-copy">Choose a movie, video, or picture. Once published, it appears in the public collection.</p>
+
+          <div class="profile-row">
+            <button class="logout" id="profilePhotoButton" type="button">Update profile picture</button>
+            <input class="sr-only" id="profilePhotoInput" type="file" accept="image/*" aria-label="Choose a profile picture" tabindex="-1">
+          </div>
+
+          <form class="upload-form" id="uploadForm">
+            <div class="field full"><label for="mediaFile">Video or picture *</label><input id="mediaFile" type="file" accept="video/*,image/*" required></div>
+            <div class="field"><label for="mediaTitle">Title *</label><input id="mediaTitle" maxlength="90" placeholder="Give it a title" required></div>
+            <div class="field full"><label for="mediaDescription">Description</label><textarea id="mediaDescription" maxlength="280" placeholder="Add a short description (optional)"></textarea></div>
+            <div class="progress" id="uploadProgress" role="progressbar" aria-label="Upload progress"><span></span></div>
+            <div class="upload-actions"><button class="primary" id="publishButton" type="submit">Publish</button>            <span class="helper">Media is uploaded to Supabase Storage and published for visitors.</span></div>
+          </form>
+          <p class="dashboard-status" id="uploadStatus" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel" aria-labelledby="manageHeading">
+          <h2 id="manageHeading">Published content</h2>
+          <p class="panel-copy">Edit or remove content published to the public collection.</p>
+          <div class="media-list" id="adminMediaList" aria-live="polite"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer shell">Rohit · Admin dashboard</footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>const preloadStarted=performance.now();const revealPreloader=()=>window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),Math.max(0,2400-(performance.now()-preloadStarted)));window.addEventListener("load",revealPreloader,{once:true});window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),3000);</script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
+  <script src="../assets/js/supabase-config.js"></script>
+  <script src="../assets/js/supabase-store.js"></script>
+  <script src="../assets/js/dashboard.js"></script>
+</body>
+</html>
