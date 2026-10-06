@@ -6,8 +6,9 @@ The RAG feature is a standalone Vercel page at `/rag`; the existing portfolio pa
 
 1. Import this repository into Vercel and deploy it from the repository root. Vercel serves the existing static site, the `/rag` route, and the `/api/rag` serverless function.
 2. In **Project Settings → Environment Variables**, add `GEMINI_API_KEY` with a Gemini API key. Add it to the environments where the project is deployed. Do not put the key in HTML, JavaScript, or any `NEXT_PUBLIC_` variable.
-3. Redeploy after saving the environment variable.
-4. Visit `https://your-deployment.vercel.app/rag` to use the assistant. The existing portfolio remains available at `/`.
+3. Optionally set `GEMINI_MODEL` to a model enabled for your project. The default is `gemini-2.5-flash-lite`, which is shown in Google's current `generateContent` REST example.
+4. Redeploy after saving environment variables.
+5. Visit `https://your-deployment.vercel.app/rag` to use the assistant. The existing portfolio remains available at `/`.
 
 The key is read only by `api/rag.js` on the server and sent to Gemini in an HTTP request header. It is not returned to the browser.
 
@@ -17,6 +18,7 @@ The local server reads `GEMINI_API_KEY` from its process environment. You can se
 
 ```text
 GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
 Keep `.env.local` private; never commit it or put the key in frontend files. Start the local server with Node's built-in environment-file support:

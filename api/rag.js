@@ -2,6 +2,7 @@ const MAX_QUESTION_LENGTH = 1000;
 const MAX_CONTEXTS = 5;
 const MAX_CONTEXT_LENGTH = 3500;
 const MAX_CONTEXT_TOTAL = 16_000;
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 
 function respond(res, status, body) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -17,6 +18,10 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return respond(res, 503, { error: "The RAG service is not configured yet. Set GEMINI_API_KEY in the server environment." });
+  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+  if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
+    return respond(res, 500, { error: "GEMINI_MODEL contains unsupported characters. Use a Gemini model name such as gemini-2.5-flash-lite." });
+  }
 
   const body = typeof req.body === "string" ? (() => {
     try { return JSON.parse(req.body); } catch { return null; }
@@ -66,7 +71,7 @@ module.exports = async function handler(req, res) {
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
     const upstream = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: "POST",
         headers: {
@@ -85,7 +90,21 @@ module.exports = async function handler(req, res) {
     );
 
     if (!upstream.ok) {
-      console.error("Gemini request failed with status", upstream.status);
+      let upstreamError = "";
+      try {
+        const result = await upstream.json();
+        upstreamError = typeof result.error?.message === "string" ? result.error.message : "";
+      } catch {
+        upstreamError = "";
+      }
+      console.error("Gemini request failed", {
+        status: upstream.status,
+        model,
+        message: upstreamError
+      });
+      if (upstream.status === 404) {
+        return respond(res, 502, { error: `Gemini model "${model}" was not found. Set GEMINI_MODEL to a model available to your Gemini API project.` });
+      }
       if (upstream.status === 429) return respond(res, 503, { error: "The AI service is busy or its quota has been reached. Please wait and try again." });
       if (upstream.status === 401 || upstream.status === 403) return respond(res, 503, { error: "The server-side Gemini API key is invalid or does not have access to this model." });
       return respond(res, 502, { error: "The AI service could not answer right now. Please try again shortly." });
