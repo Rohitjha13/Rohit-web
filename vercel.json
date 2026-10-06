@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/rag",
+      "destination": "/rag.html"
+    }
+  ]
+}

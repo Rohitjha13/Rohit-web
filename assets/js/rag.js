@@ -1,0 +1,386 @@
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 24 * 1024 * 1024;
+const MAX_FILES = 10;
+const MAX_DOCUMENT_CHARS = 1_000_000;
+const MAX_CHUNKS = 1_000;
+const CHUNK_WORDS = 210;
+const CHUNK_OVERLAP = 35;
+const MAX_CONTEXTS = 5;
+const STOP_WORDS = new Set("a an and are as at be been but by can do for from had has have he her hers him his how i if in into is it its me my of on or our she so that the their them then there these they this to was we were what when where which who will with you your".split(" "));
+
+const fileInput = document.querySelector("#fileInput");
+const addFilesButton = document.querySelector("#addFilesButton");
+const dropZone = document.querySelector("#dropZone");
+const fileList = document.querySelector("#fileList");
+const documentCount = document.querySelector("#documentCount");
+const libraryStatus = document.querySelector("#libraryStatus");
+const clearLibraryButton = document.querySelector("#clearLibraryButton");
+const questionForm = document.querySelector("#questionForm");
+const questionInput = document.querySelector("#questionInput");
+const askButton = document.querySelector("#askButton");
+const messages = document.querySelector("#messages");
+
+const documents = new Map();
+let chunks = [];
+let working = false;
+
+function setStatus(message, isError = false) {
+  libraryStatus.textContent = message;
+  libraryStatus.classList.toggle("error", isError);
+}
+
+function words(text) {
+  return text.toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+}
+
+function cleanText(text) {
+  return text
+    .replace(/\u0000/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function createChunks(text, source) {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const step = CHUNK_WORDS - CHUNK_OVERLAP;
+  const result = [];
+
+  for (let start = 0; start < tokens.length; start += step) {
+    const content = tokens.slice(start, start + CHUNK_WORDS).join(" ").slice(0, 3000).trim();
+    if (content) result.push({ source, part: result.length + 1, text: content, terms: words(content) });
+    if (start + CHUNK_WORDS >= tokens.length) break;
+  }
+  return result;
+}
+
+async function readDocument(file) {
+  const extension = file.name.split(".").pop().toLowerCase();
+
+  if (["txt", "md", "csv", "json"].includes(extension)) return file.text();
+
+  if (extension === "docx") {
+    if (!window.mammoth) throw new Error("The DOCX reader did not load. Check your connection and try again.");
+    const result = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return result.value;
+  }
+
+  if (extension === "pdf") {
+    const pdfjs = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    if (pdf.numPages > 500) throw new Error("PDFs are limited to 500 pages.");
+
+    const pages = [];
+    let extractedCharacters = 0;
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item) => "str" in item ? item.str : "").join(" ");
+      extractedCharacters += pageText.length + 2;
+      if (extractedCharacters > MAX_DOCUMENT_CHARS) {
+        throw new Error("This file contains more than 1,000,000 extracted characters. Split it into smaller files.");
+      }
+      pages.push(pageText);
+    }
+    return pages.join("\n\n");
+  }
+
+  throw new Error("Unsupported file type. Add a PDF, DOCX, TXT, Markdown, CSV, or JSON file.");
+}
+
+function updateLibrary() {
+  fileList.replaceChildren();
+  const fileCount = documents.size;
+  documentCount.textContent = `${fileCount} ${fileCount === 1 ? "file" : "files"}`;
+  clearLibraryButton.hidden = fileCount === 0;
+
+  for (const [key, entry] of documents) {
+    const item = document.createElement("li");
+    item.className = "file-item";
+    const type = document.createElement("span");
+    type.className = "file-type";
+    type.textContent = entry.extension;
+    const meta = document.createElement("div");
+    meta.className = "file-meta";
+    const name = document.createElement("p");
+    name.className = "file-name";
+    name.textContent = entry.name;
+    name.title = entry.name;
+    const detail = document.createElement("p");
+    detail.className = "file-detail";
+    detail.textContent = `${entry.chunkCount} searchable ${entry.chunkCount === 1 ? "passage" : "passages"}`;
+    const remove = document.createElement("button");
+    remove.className = "remove-file";
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove ${entry.name}`);
+    remove.addEventListener("click", () => {
+      documents.delete(key);
+      chunks = chunks.filter((chunk) => chunk.key !== key);
+      updateLibrary();
+      updateAskButton();
+      setStatus(`${entry.name} removed.`);
+    });
+    meta.append(name, detail);
+    item.append(type, meta, remove);
+    fileList.append(item);
+  }
+}
+
+function updateAskButton() {
+  askButton.disabled = working || chunks.length === 0;
+  addFilesButton.disabled = working;
+  fileInput.disabled = working;
+  questionInput.disabled = working;
+  clearLibraryButton.disabled = working;
+}
+
+function fileKey(file) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+async function addFiles(fileArray) {
+  if (working) {
+    setStatus("Wait for the current documents to finish processing.", true);
+    return;
+  }
+  const selected = Array.from(fileArray);
+  if (selected.length === 0) {
+    setStatus("Choose at least one document first.", true);
+    return;
+  }
+
+  const newFiles = selected.filter((file) => !documents.has(fileKey(file)));
+  if (newFiles.length === 0) {
+    setStatus("Those files are already in your library.", true);
+    return;
+  }
+  if (documents.size + newFiles.length > MAX_FILES) {
+    setStatus(`Your library can contain up to ${MAX_FILES} files.`, true);
+    return;
+  }
+
+  const currentBytes = Array.from(documents.values()).reduce((total, document) => total + document.size, 0);
+  const selectedBytes = newFiles.reduce((total, file) => total + file.size, 0);
+  if (newFiles.some((file) => file.size > MAX_FILE_BYTES)) {
+    setStatus("Each file must be 8 MB or smaller.", true);
+    return;
+  }
+  if (currentBytes + selectedBytes > MAX_TOTAL_BYTES) {
+    setStatus("The total size of your library cannot exceed 24 MB.", true);
+    return;
+  }
+
+  working = true;
+  updateAskButton();
+  const failures = [];
+  let added = 0;
+
+  for (const file of newFiles) {
+    setStatus(`Reading ${file.name}…`);
+    try {
+      if (file.name.length > 150) throw new Error("File names must be 150 characters or fewer.");
+      const rawText = await readDocument(file);
+      const text = cleanText(rawText);
+      if (!text) throw new Error("No readable text was found. Scanned PDFs need OCR before they can be used.");
+      if (text.length > MAX_DOCUMENT_CHARS) {
+        throw new Error("This file contains more than 1,000,000 extracted characters. Split it into smaller files.");
+      }
+
+      const fileChunks = createChunks(text, file.name);
+      const newChunkCount = chunks.length + fileChunks.length;
+      if (newChunkCount > MAX_CHUNKS) {
+        throw new Error(`Your library exceeds the ${MAX_CHUNKS}-passage limit. Remove a file or use smaller documents.`);
+      }
+
+      const key = fileKey(file);
+      documents.set(key, {
+        name: file.name,
+        extension: file.name.split(".").pop().toLowerCase(),
+        size: file.size,
+        chunkCount: fileChunks.length
+      });
+      chunks.push(...fileChunks.map((chunk) => ({ ...chunk, key })));
+      added += 1;
+    } catch (error) {
+      failures.push(`${file.name}: ${error.message}`);
+    }
+  }
+
+  working = false;
+  updateLibrary();
+  updateAskButton();
+  fileInput.value = "";
+  if (failures.length) {
+    setStatus(`${added} file${added === 1 ? "" : "s"} added. ${failures.join(" ")}`, added === 0);
+  } else {
+    setStatus(`${added} file${added === 1 ? "" : "s"} processed and ready to search.`);
+  }
+}
+
+function rankChunks(question) {
+  const queryTerms = [...new Set(words(question).filter((term) => !STOP_WORDS.has(term)))];
+  if (queryTerms.length === 0) return [];
+
+  const documentFrequency = new Map();
+  for (const chunk of chunks) {
+    for (const term of new Set(chunk.terms)) {
+      documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
+    }
+  }
+
+  const averageLength = chunks.reduce((sum, chunk) => sum + chunk.terms.length, 0) / chunks.length || 1;
+  return chunks
+    .map((chunk) => {
+      let score = 0;
+      const termCounts = new Map();
+      for (const term of chunk.terms) termCounts.set(term, (termCounts.get(term) || 0) + 1);
+      for (const term of queryTerms) {
+        const frequency = termCounts.get(term) || 0;
+        const count = documentFrequency.get(term) || 0;
+        if (!frequency || !count) continue;
+        const inverseFrequency = Math.log(1 + (chunks.length - count + 0.5) / (count + 0.5));
+        score += inverseFrequency * (frequency * 2.2) / (frequency + 1.2 * (0.25 + 0.75 * chunk.terms.length / averageLength));
+      }
+      return { chunk, score };
+    })
+    .filter((result) => result.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_CONTEXTS)
+    .map((result) => result.chunk);
+}
+
+function addMessage(text, role, sources = []) {
+  const article = document.createElement("article");
+  article.className = `message ${role === "user" ? "user-message" : "assistant-message"}`;
+
+  if (role === "assistant") {
+    const avatar = document.createElement("span");
+    avatar.className = "message-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = "R";
+    article.append(avatar);
+  }
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+  const paragraph = document.createElement("p");
+  paragraph.textContent = text;
+  content.append(paragraph);
+
+  if (sources.length) {
+    const sourceList = document.createElement("ul");
+    sourceList.className = "source-list";
+    sourceList.setAttribute("aria-label", "Sources used");
+    for (const source of sources) {
+      const item = document.createElement("li");
+      item.textContent = `${source.source} · passage ${source.part}`;
+      sourceList.append(item);
+    }
+    content.append(sourceList);
+  }
+
+  article.append(content);
+  messages.append(article);
+  messages.scrollTop = messages.scrollHeight;
+  return article;
+}
+
+function addTypingIndicator() {
+  const article = document.createElement("article");
+  article.className = "message assistant-message";
+  article.innerHTML = '<span class="message-avatar" aria-hidden="true">R</span><div class="message-content"><span class="typing" role="status"><span></span><span></span><span></span> Searching your sources and writing an answer…</span></div>';
+  messages.append(article);
+  messages.scrollTop = messages.scrollHeight;
+  return article;
+}
+
+async function askQuestion(question) {
+  const matches = rankChunks(question);
+  if (matches.length === 0) {
+    addMessage("I couldn't find a passage that matches that question in the documents currently in your library. Try rephrasing the question or add a relevant document.", "assistant");
+    return;
+  }
+
+  const pending = addTypingIndicator();
+  working = true;
+  updateAskButton();
+
+  try {
+    const response = await fetch("/api/rag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        contexts: matches.map(({ source, part, text }) => ({ source, part, text }))
+      })
+    });
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error("The RAG API returned an unreadable response. Check that the app is deployed with its serverless API.");
+    }
+    if (!response.ok) throw new Error(result.error || `The RAG API request failed (${response.status}).`);
+    if (typeof result.answer !== "string" || !result.answer.trim()) throw new Error("The AI service returned an empty answer. Please try again.");
+    pending.remove();
+    addMessage(result.answer, "assistant", matches);
+  } catch (error) {
+    pending.remove();
+    addMessage(error.message, "assistant");
+  } finally {
+    working = false;
+    updateAskButton();
+    questionInput.focus();
+  }
+}
+
+addFilesButton.addEventListener("click", () => addFiles(fileInput.files));
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) addFiles(fileInput.files);
+});
+
+dropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  dropZone.classList.add("dragging");
+});
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
+dropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  dropZone.classList.remove("dragging");
+  if (event.dataTransfer.files.length) addFiles(event.dataTransfer.files);
+});
+
+clearLibraryButton.addEventListener("click", () => {
+  documents.clear();
+  chunks = [];
+  updateLibrary();
+  updateAskButton();
+  setStatus("All documents removed from this browser session.");
+});
+
+questionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (working) return;
+  const question = questionInput.value.trim();
+  if (!question) return;
+  if (chunks.length === 0) {
+    addMessage("Add and process at least one document before asking a question.", "assistant");
+    return;
+  }
+  addMessage(question, "user");
+  questionInput.value = "";
+  await askQuestion(question);
+});
+
+questionInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    questionForm.requestSubmit();
+  }
+});
+
+updateLibrary();
+updateAskButton();

@@ -2,6 +2,7 @@
   const grid = document.getElementById("videoGrid");
   const modal = document.getElementById("playerModal");
   const player = document.getElementById("videoPlayer");
+  const audioPlayer = document.getElementById("audioPlayer");
   const imageViewer = document.getElementById("imageViewer");
   let media = [];
   let viewerRequest = 0;
@@ -13,7 +14,7 @@
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
         thumbnailObserver.unobserve(entry.target);
-        loadThumbnail(entry.target, entry.target.dataset.mediaId, entry.target.dataset.image === "true");
+        loadThumbnail(entry.target, entry.target.dataset.mediaId);
       });
     }, { rootMargin: "160px" })
     : null;
@@ -62,11 +63,41 @@
     }
   }
 
-  async function loadThumbnail(image, id, isImage) {
+  async function loadProfileDetails() {
+    const profile = await window.SupabaseMediaStore.getProfile();
+    const name = document.getElementById("profileName");
+    name.textContent = profile.name;
+    document.getElementById("profileBio").textContent = profile.bio;
+    const avatar = document.getElementById("avatarDisplay");
+    avatar.setAttribute("aria-label", `${profile.name}'s profile photo or initials`);
+    const image = avatar.querySelector("img");
+    if (image) image.alt = profile.name;
+  }
+
+  async function loadThumbnail(preview, id) {
     try {
-      const file = await window.SupabaseMediaStore.getMediaThumbnail(id, isImage);
-      if (!file || !image.isConnected) return;
-      image.src = file;
+      const file = await window.SupabaseMediaStore.getMediaThumbnail(id);
+      if (!file || !preview.isConnected) return;
+      if (preview instanceof HTMLVideoElement) {
+        preview.crossOrigin = "anonymous";
+        preview.addEventListener("loadeddata", () => {
+          if (!preview.videoWidth || !preview.videoHeight) return;
+          const canvas = document.createElement("canvas");
+          canvas.width = preview.videoWidth;
+          canvas.height = preview.videoHeight;
+          const context = canvas.getContext("2d");
+          if (context) {
+            try {
+              context.drawImage(preview, 0, 0, canvas.width, canvas.height);
+              preview.poster = canvas.toDataURL("image/jpeg", 0.82);
+            } catch (error) {
+              showToast(`The video is available, but its preview image could not be created: ${error.message}`);
+            }
+          }
+        }, { once: true });
+      }
+      preview.src = file;
+      if (preview instanceof HTMLVideoElement) preview.load();
     } catch (error) {
       showToast(`Could not load a media thumbnail: ${error.message}`);
     }
@@ -92,8 +123,10 @@
   }
 
   function matchesFilter(item) {
-    if (activeFilter === "Videos") return item.media_type === "video";
-    if (activeFilter === "Pictures") return item.media_type === "image";
+    const mediaType = window.SupabaseMediaStore.getMediaType(item);
+    if (activeFilter === "Videos") return mediaType === "video";
+    if (activeFilter === "Pictures") return mediaType === "image";
+    if (activeFilter === "Audio") return mediaType === "audio";
     return true;
   }
 
@@ -118,34 +151,53 @@
     }
 
     for (const item of visible) {
+      const mediaType = window.SupabaseMediaStore.getMediaType(item);
       const card = document.createElement("article");
       card.className = "video-card";
-      const thumbnail = document.createElement("button");
-      thumbnail.type = "button";
-      thumbnail.className = `video-thumb${item.media_type === "image" ? " image-thumb" : ""}`;
-      thumbnail.setAttribute("aria-label", `${item.media_type === "video" ? "Play" : "View"} ${item.title}`);
+      const thumbnail = document.createElement(mediaType === "video" || !mediaType ? "div" : "button");
+      if (mediaType !== "video" && mediaType) thumbnail.type = "button";
+      thumbnail.className = `video-thumb${mediaType === "image" ? " image-thumb" : ""}${mediaType === "video" ? " video-preview" : ""}`;
+      const isAudio = mediaType === "audio";
+      const isVideo = mediaType === "video";
+      thumbnail.setAttribute("aria-label", `${isAudio ? "Listen to" : isVideo ? "Video preview for" : mediaType === "image" ? "View" : "Unsupported media"} ${item.title}`);
 
-      if (item.media_type === "image" || item.has_cover) {
+      if (mediaType === "image") {
         const image = document.createElement("img");
-        image.alt = item.media_type === "image" ? item.title : "";
+        image.alt = item.title;
         image.loading = "lazy";
         image.dataset.mediaId = item.id;
-        image.dataset.image = String(item.media_type === "image");
         thumbnail.append(image);
-      } else {
+        thumbnail.addEventListener("click", () => openViewer(item));
+        if (thumbnailObserver) thumbnailObserver.observe(image);
+        else loadThumbnail(image, item.id);
+      } else if (isVideo) {
+        const video = document.createElement("video");
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        video.setAttribute("aria-label", `${item.title} video preview`);
+        video.dataset.mediaId = item.id;
+        video.addEventListener("play", () => {
+          video.pause();
+          openViewer(item);
+        }, { once: true });
+        thumbnail.append(video);
+        if (thumbnailObserver) thumbnailObserver.observe(video);
+        else loadThumbnail(video, item.id);
+      } else if (isAudio) {
         const art = document.createElement("span");
         art.className = "thumb-art";
         art.setAttribute("aria-hidden", "true");
         thumbnail.append(art);
-      }
-      if (item.media_type === "video") {
         const playIcon = document.createElement("span");
         playIcon.className = "play-icon";
         playIcon.setAttribute("aria-hidden", "true");
-        playIcon.textContent = "▶";
+        playIcon.textContent = "♪";
         thumbnail.append(playIcon);
+        thumbnail.addEventListener("click", () => openViewer(item));
+      } else {
+        thumbnail.textContent = "Unsupported media type";
       }
-      thumbnail.addEventListener("click", () => openViewer(item));
 
       const info = document.createElement("div");
       info.className = "video-info";
@@ -153,7 +205,7 @@
       meta.className = "video-meta";
       const category = document.createElement("span");
       category.className = "video-category";
-      category.textContent = item.media_type === "image" ? "PICTURE" : "VIDEO";
+      category.textContent = isAudio ? "AUDIO" : mediaType === "image" ? "PICTURE" : mediaType === "video" ? "VIDEO" : "UNSUPPORTED";
       const date = document.createElement("span");
       date.className = "video-date";
       date.textContent = formatDate(item.created_at);
@@ -164,33 +216,39 @@
       title.textContent = item.title;
       const description = document.createElement("p");
       description.className = "video-description";
-      description.textContent = item.description || (item.media_type === "video" ? "A story in the collection." : "A picture in the collection.");
+      description.textContent = item.description || (isAudio ? "A track in the collection." : isVideo ? "A story in the collection." : mediaType === "image" ? "A picture in the collection." : "This item has an unsupported media type.");
       const footer = document.createElement("div");
       footer.className = "card-footer";
       const openButton = document.createElement("button");
       openButton.type = "button";
       openButton.className = "watch-button";
-      openButton.textContent = item.media_type === "video" ? "Watch video  ↗" : "View picture  ↗";
-      openButton.addEventListener("click", () => openViewer(item));
+      openButton.textContent = isAudio ? "Listen to audio  ↗" : isVideo ? "Watch video  ↗" : mediaType === "image" ? "View picture  ↗" : "Unavailable";
+      openButton.disabled = !mediaType;
+      if (mediaType) openButton.addEventListener("click", () => openViewer(item));
       footer.append(openButton);
       info.append(meta, title, description, footer);
       card.append(thumbnail, info);
       grid.append(card);
-      if (item.media_type === "image" || item.has_cover) {
-        if (thumbnailObserver) thumbnailObserver.observe(thumbnail.querySelector("img"));
-        else loadThumbnail(thumbnail.querySelector("img"), item.id, item.media_type === "image");
-      }
     }
   }
 
   async function openViewer(item) {
     const request = ++viewerRequest;
+    const mediaType = window.SupabaseMediaStore.getMediaType(item);
+    if (!mediaType) {
+      showToast("This item has an unsupported media type.");
+      return;
+    }
     player.pause();
+    audioPlayer.pause();
     player.removeAttribute("src");
     player.load();
+    audioPlayer.removeAttribute("src");
+    audioPlayer.load();
     imageViewer.removeAttribute("src");
-    player.hidden = item.media_type !== "video";
-    imageViewer.hidden = item.media_type !== "image";
+    player.hidden = mediaType !== "video";
+    audioPlayer.hidden = mediaType !== "audio";
+    imageViewer.hidden = mediaType !== "image";
     document.getElementById("playerTitle").textContent = item.title;
     document.getElementById("playerDescription").textContent = item.description || "";
     modal.classList.add("open");
@@ -199,10 +257,16 @@
       const file = await window.SupabaseMediaStore.getMediaFile(item.id);
       if (request !== viewerRequest || !modal.classList.contains("open")) return;
       if (!file) throw new Error("The saved media file could not be found.");
-      if (item.media_type === "video") {
+      if (mediaType === "video") {
         player.src = file;
         player.load();
         player.play().catch(() => showToast("Press play in the video controls to start playback."));
+        return;
+      }
+      if (mediaType === "audio") {
+        audioPlayer.src = file;
+        audioPlayer.load();
+        audioPlayer.play().catch(() => showToast("Press play in the audio controls to start playback."));
         return;
       }
       imageViewer.src = file;
@@ -217,16 +281,16 @@
   function closeViewer() {
     viewerRequest += 1;
     player.pause();
+    audioPlayer.pause();
     player.removeAttribute("src");
     player.load();
+    audioPlayer.removeAttribute("src");
+    audioPlayer.load();
     imageViewer.removeAttribute("src");
     modal.classList.remove("open");
     document.body.style.overflow = "";
   }
 
-  document.getElementById("videosNav").addEventListener("click", () => {
-    document.getElementById("library").scrollIntoView({ behavior: "smooth" });
-  });
   document.getElementById("aboutNav").addEventListener("click", () => {
     document.getElementById("about").scrollIntoView({ behavior: "smooth", block: "center" });
   });
@@ -256,7 +320,10 @@
         media = await window.SupabaseMediaStore.getMedia();
         render();
       } else if (event.detail === "profile") {
-        await loadProfilePhoto();
+        await Promise.all([
+          loadProfilePhoto(),
+          loadProfileDetails().catch(error => showToast(`Could not load profile details: ${error.message}`))
+        ]);
       }
     } catch (error) {
       showToast(`Could not refresh the collection: ${error.message}`);
@@ -270,7 +337,10 @@
       }
       setConnection("Loading published media from Supabase…", true);
       media = await window.SupabaseMediaStore.getMedia();
-      await loadProfilePhoto();
+      await Promise.all([
+        loadProfilePhoto(),
+        loadProfileDetails().catch(error => showToast(`Could not load profile details: ${error.message}`))
+      ]);
 
       setConnection("Connected to the public Supabase media library.", true);
       render();

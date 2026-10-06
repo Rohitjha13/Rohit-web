@@ -1,6 +1,10 @@
 (() => {
   const config = window.ROHIT_SUPABASE_CONFIG;
   const MEDIA_BUCKET = "media";
+  const DEFAULT_PROFILE = Object.freeze({
+    name: "Rohit Jha",
+    bio: "Web developer currently pursuing my bachelor's degree. I love building for the web and collecting great stories worth sharing."
+  });
   const CHANNEL_NAME = "rohit-supabase-library";
   const changeChannel = "BroadcastChannel" in window
     ? new BroadcastChannel(CHANNEL_NAME)
@@ -46,6 +50,11 @@
     if (error) throw new Error(error.message || "The Supabase request failed.");
   }
 
+  function isMissingStorageObject(error) {
+    return Number(error?.statusCode) === 404 ||
+      (error?.error === "not_found" && /object not found/i.test(error.message || ""));
+  }
+
   function getPublicUrl(path, bucket = MEDIA_BUCKET) {
     if (!path) return null;
     if (/^https?:\/\//i.test(path)) return path;
@@ -60,6 +69,24 @@
       return match?.[1] ? decodeURIComponent(match[1]) : null;
     }
     return path.replace(/^\/+/, "");
+  }
+
+  function getMediaType(item) {
+    const storedType = String(item?.media_type || "").trim().toLowerCase();
+    return ["image", "video", "audio"].includes(storedType) ? storedType : null;
+  }
+
+  async function getProfilePhoto() {
+    const photoUrl = getPublicUrl("profile/avatar");
+    const response = await fetch(photoUrl, { method: "HEAD" });
+    if (response.status === 404) return null;
+    if (response.status === 400) {
+      const missingResponse = await fetch(photoUrl);
+      const error = await missingResponse.json();
+      if (error.code === "NoSuchKey" && Number(error.statusCode) === 404) return null;
+    }
+    if (!response.ok) throw new Error(`Could not load the profile photo (HTTP ${response.status}).`);
+    return `${photoUrl}?updated=${Date.now()}`;
   }
 
   function extensionFor(file) {
@@ -187,6 +214,7 @@
       throwIfError(error);
       return data;
     },
+    getMediaType,
     getMediaFile(id) {
       return getClient()
         .from("media_items")
@@ -200,7 +228,7 @@
           return getPublicUrl(data.file_path);
         });
     },
-    async getMediaThumbnail(id, isImage) {
+    async getMediaThumbnail(id) {
       const { data, error } = await getClient()
         .from("media_items")
         .select("file_path,media_type")
@@ -208,7 +236,8 @@
         .eq("published", true)
         .single();
       throwIfError(error);
-      return isImage && data.media_type === "image" && data.file_path ? getPublicUrl(data.file_path) : null;
+      const mediaType = getMediaType(data);
+      return (mediaType === "image" || mediaType === "video") && data.file_path ? getPublicUrl(data.file_path) : null;
     },
     async addMedia(item, file, onProgress) {
       const id = item.id;
@@ -270,17 +299,53 @@
       }
       return "";
     },
-    async getProfilePhoto() {
-      const response = await fetch(getPublicUrl("profile/avatar"), { method: "HEAD" });
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error(`Could not load the profile photo (HTTP ${response.status}).`);
-      return getPublicUrl("profile/avatar");
+    getProfilePhoto,
+    async getProfile() {
+      const { data, error } = await getClient().storage.from(MEDIA_BUCKET).download("profile/profile.json");
+      if (error) {
+        if (isMissingStorageObject(error)) return { ...DEFAULT_PROFILE };
+        throwIfError(error);
+      }
+
+      let profile;
+      try {
+        profile = JSON.parse(await data.text());
+      } catch {
+        throw new Error("The saved profile details could not be read. Update them again from the dashboard.");
+      }
+      if (!profile || typeof profile.name !== "string" || typeof profile.bio !== "string") {
+        throw new Error("The saved profile details are invalid. Update them again from the dashboard.");
+      }
+      return {
+        name: profile.name.slice(0, 60),
+        bio: profile.bio.slice(0, 280)
+      };
+    },
+    async updateProfile(profile) {
+      const name = typeof profile?.name === "string" ? profile.name.trim() : "";
+      const bio = typeof profile?.bio === "string" ? profile.bio.trim() : "";
+      if (!name || name.length > 60 || bio.length > 280) {
+        throw new Error("Enter a name of up to 60 characters and a bio of up to 280 characters.");
+      }
+
+      const file = new Blob([JSON.stringify({ name, bio })], { type: "application/json" });
+      const { error } = await getClient().storage.from(MEDIA_BUCKET).upload("profile/profile.json", file, {
+        cacheControl: "0",
+        contentType: "application/json",
+        upsert: true
+      });
+      throwIfError(error);
+      notifyChange("profile");
     },
     async setProfilePhoto(file) {
+      if (await getProfilePhoto()) {
+        const { error: removeError } = await getClient().storage.from(MEDIA_BUCKET).remove(["profile/avatar"]);
+        throwIfError(removeError);
+      }
       const { error } = await getClient().storage.from(MEDIA_BUCKET).upload("profile/avatar", file, {
         cacheControl: "3600",
         contentType: file.type || "application/octet-stream",
-        upsert: true
+        upsert: false
       });
       throwIfError(error);
       notifyChange("profile");

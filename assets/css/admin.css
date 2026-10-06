@@ -72,6 +72,12 @@ h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 37px;
 .upload-form input, .upload-form textarea, .upload-form select { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: #fcfcfa; padding: 11px 12px; color: var(--ink); font-size: 12px; }
 .upload-form textarea { min-height: 68px; resize: vertical; }
 .upload-form input[type="file"] { padding: 9px; }
+.profile-form { display: grid; gap: 9px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
+.profile-form h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 400; }
+.profile-field { display: grid; gap: 6px; }
+.profile-field label { font-size: 10px; font-weight: 750; }
+.profile-field input, .profile-field textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: #fcfcfa; padding: 10px 11px; color: var(--ink); font: inherit; font-size: 12px; }
+.profile-field textarea { resize: vertical; }
 .upload-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 11px; }
 .helper { flex: 1 1 150px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .progress { display: none; height: 5px; overflow: hidden; border-radius: 9px; background: var(--line); }
@@ -83,7 +89,8 @@ h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 37px;
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
 .media-list { display: grid; gap: 10px; max-height: 720px; overflow: auto; }
 .media-item { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 11px; }
-.media-item img { display: block; width: 74px; aspect-ratio: 16 / 10; border-radius: 7px; background: var(--green); object-fit: cover; }
+.media-item img, .media-item video, .media-preview-audio { display: block; width: 74px; aspect-ratio: 16 / 10; border-radius: 7px; background: var(--green); object-fit: cover; }
+.media-preview-audio { display: grid; place-items: center; color: var(--green-deep); font-size: 20px; }
 .media-title { overflow: hidden; margin: 0 0 5px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .media-meta { margin: 0; color: var(--muted); font-size: 10px; }
 .media-actions { display: flex; align-items: center; gap: 10px; }
@@ -99,5 +106,5 @@ h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 37px;
 .footer { padding: 18px 0 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; text-align: center; }
 @media (max-width: 480px) { .shell { width: calc(100% - 30px); } .topbar { height: 66px; } .card { border-radius: 16px; } h1 { font-size: 33px; } }
 @media (max-width: 780px) { .dashboard-grid { grid-template-columns: 1fr; } }
-@media (max-width: 480px) { .upload-form { grid-template-columns: 1fr; } .upload-form .field.full, .upload-form .progress, .upload-form .upload-actions { grid-column: auto; } .dashboard-heading { align-items: flex-start; } .media-item { grid-template-columns: 62px minmax(0, 1fr) auto; gap: 8px; padding: 8px; } .media-item img { width: 62px; } .media-actions { flex-direction: column; align-items: flex-end; gap: 6px; } .edit-media, .delete-media { font-size: 9px; } }
+@media (max-width: 480px) { .upload-form { grid-template-columns: 1fr; } .upload-form .field.full, .upload-form .progress, .upload-form .upload-actions { grid-column: auto; } .dashboard-heading { align-items: flex-start; } .media-item { grid-template-columns: 62px minmax(0, 1fr) auto; gap: 8px; padding: 8px; } .media-item img, .media-item video, .media-preview-audio { width: 62px; } .media-actions { flex-direction: column; align-items: flex-end; gap: 6px; } .edit-media, .delete-media { font-size: 9px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }

@@ -28,7 +28,7 @@ jobs:
       - name: Prepare public website files
         run: |
           mkdir -p .pages-site/assets .pages-site/admin
-          cp index.html admin.html .pages-site/
+          cp index.html about.html admin.html .pages-site/
           cp -R admin assets .pages-site/
       - name: Upload website files
         uses: actions/upload-pages-artifact@v3

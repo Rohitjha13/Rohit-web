@@ -40,7 +40,20 @@
       <div class="dashboard-grid">
         <section class="panel" aria-labelledby="uploadHeading">
           <h2 id="uploadHeading">Publish new content</h2>
-          <p class="panel-copy">Choose a movie, video, or picture. Once published, it appears in the public collection.</p>
+          <p class="panel-copy">Choose a video, picture, or audio file. Published media appears in the public collection.</p>
+
+          <form class="profile-form" id="profileForm">
+            <h3>Profile details</h3>
+            <div class="profile-field">
+              <label for="profileNameInput">Name</label>
+              <input id="profileNameInput" maxlength="60" required>
+            </div>
+            <div class="profile-field">
+              <label for="profileBioInput">Bio</label>
+              <textarea id="profileBioInput" maxlength="280" rows="3"></textarea>
+            </div>
+            <button class="logout" id="saveProfileButton" type="submit">Save profile</button>
+          </form>
 
           <div class="profile-row">
             <button class="logout" id="profilePhotoButton" type="button">Update profile picture</button>
@@ -48,11 +61,14 @@
           </div>
 
           <form class="upload-form" id="uploadForm">
-            <div class="field full"><label for="mediaFile">Video or picture *</label><input id="mediaFile" type="file" accept="video/*,image/*" required></div>
+            <div class="field full"><label for="mediaFile">Video, picture, or audio *</label><input id="mediaFile" type="file" accept="video/*,image/*,audio/*" required></div>
             <div class="field"><label for="mediaTitle">Title *</label><input id="mediaTitle" maxlength="90" placeholder="Give it a title" required></div>
             <div class="field full"><label for="mediaDescription">Description</label><textarea id="mediaDescription" maxlength="280" placeholder="Add a short description (optional)"></textarea></div>
             <div class="progress" id="uploadProgress" role="progressbar" aria-label="Upload progress"><span></span></div>
-            <div class="upload-actions"><button class="primary" id="publishButton" type="submit">Publish</button>            <span class="helper">Media is uploaded to Supabase Storage and published for visitors.</span></div>
+            <div class="upload-actions">
+              <button class="primary" id="publishButton" type="submit">Publish</button>
+              <span class="helper">Media is uploaded to Supabase Storage and published for visitors.</span>
+            </div>
           </form>
           <p class="dashboard-status" id="uploadStatus" role="status" aria-live="polite"></p>
         </section>
@@ -69,7 +85,7 @@
   <footer class="footer shell">Rohit · Admin dashboard</footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script>const preloadStarted=performance.now();const revealPreloader=()=>window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),Math.max(0,2400-(performance.now()-preloadStarted)));window.addEventListener("load",revealPreloader,{once:true});window.setTimeout(()=>document.getElementById("preloader")?.classList.add("done"),3000);</script>
+  <script src="../assets/js/preloader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
   <script src="../assets/js/supabase-config.js"></script>

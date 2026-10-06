@@ -5,6 +5,7 @@
   const app = document.getElementById("dashboardApp");
   const list = document.getElementById("adminMediaList");
   const form = document.getElementById("uploadForm");
+  const profileForm = document.getElementById("profileForm");
   const progress = document.getElementById("uploadProgress");
   const progressFill = progress.querySelector("span");
   const thumbnailObserver = "IntersectionObserver" in window
@@ -12,7 +13,7 @@
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
         thumbnailObserver.unobserve(entry.target);
-        loadThumbnail(entry.target, entry.target.dataset.mediaId, entry.target.dataset.image === "true");
+        loadThumbnail(entry.target, entry.target.dataset.mediaId);
       });
     }, { rootMargin: "120px" })
     : null;
@@ -53,18 +54,38 @@
     for (const item of items) {
       const row = document.createElement("article");
       row.className = "media-item";
-      const image = document.createElement("img");
-      image.loading = "lazy";
-      image.alt = item.media_type === "image" ? item.title : "";
-      image.dataset.mediaId = item.id;
-      image.dataset.image = String(item.media_type === "image");
+      const mediaType = window.SupabaseMediaStore.getMediaType(item);
+      let preview;
+      if (mediaType === "video") {
+        preview = document.createElement("video");
+        preview.controls = true;
+        preview.playsInline = true;
+        preview.preload = "metadata";
+        preview.setAttribute("aria-label", `${item.title} video preview`);
+      } else if (mediaType === "image") {
+        preview = document.createElement("img");
+        preview.loading = "lazy";
+        preview.alt = item.title;
+      } else if (mediaType === "audio") {
+        preview = document.createElement("div");
+        preview.className = "media-preview-audio";
+        preview.setAttribute("aria-label", "Audio");
+        preview.textContent = "♪";
+      } else {
+        preview = document.createElement("div");
+        preview.className = "media-preview-audio";
+        preview.setAttribute("aria-label", "Unsupported media type");
+        preview.textContent = "—";
+      }
+      preview.dataset.mediaId = item.id;
       const details = document.createElement("div");
       const title = document.createElement("h3");
       title.className = "media-title";
       title.textContent = item.title;
       const meta = document.createElement("p");
       meta.className = "media-meta";
-      meta.textContent = `${item.media_type === "image" ? "Picture" : "Video"} · ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(item.created_at))}`;
+      const type = mediaType === "image" ? "Picture" : mediaType === "audio" ? "Audio" : mediaType === "video" ? "Video" : "Unsupported media";
+      meta.textContent = `${type} · ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(item.created_at))}`;
       details.append(title, meta);
 
       const actions = document.createElement("div");
@@ -95,11 +116,11 @@
         }
       });
       actions.append(edit, remove);
-      row.append(image, details, actions);
+      row.append(preview, details, actions);
       list.append(row);
-      if (item.media_type === "image" || item.has_cover) {
-        if (thumbnailObserver) thumbnailObserver.observe(image);
-        else loadThumbnail(image, item.id, item.media_type === "image");
+      if (mediaType === "image" || mediaType === "video") {
+        if (thumbnailObserver) thumbnailObserver.observe(preview);
+        else loadThumbnail(preview, item.id);
       }
     }
   }
@@ -139,10 +160,12 @@
     }
   }
 
-  async function loadThumbnail(image, id, isImage) {
+  async function loadThumbnail(preview, id) {
     try {
-      const url = await window.SupabaseMediaStore.getMediaThumbnail(id, isImage);
-      if (url && image.isConnected) image.src = url;
+      const url = await window.SupabaseMediaStore.getMediaThumbnail(id);
+      if (!url || !preview.isConnected) return;
+      preview.src = url;
+      if (preview instanceof HTMLVideoElement) preview.load();
     } catch (error) {
       showToast(`Could not load a media thumbnail: ${error.message}`);
     }
@@ -160,6 +183,34 @@
   window.addEventListener("rohit-library-change", event => {
     if (event.detail === "media") {
       loadItems().catch(showListError);
+    } else if (event.detail === "profile") {
+      loadProfileDetails().catch(error => showToast(`Could not load profile details: ${error.message}`));
+    }
+  });
+
+  async function loadProfileDetails() {
+    const profile = await window.SupabaseMediaStore.getProfile();
+    document.getElementById("profileNameInput").value = profile.name;
+    document.getElementById("profileBioInput").value = profile.bio;
+  }
+
+  profileForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = document.getElementById("saveProfileButton");
+    button.disabled = true;
+    button.textContent = "Saving…";
+
+    try {
+      await window.SupabaseMediaStore.updateProfile({
+        name: document.getElementById("profileNameInput").value,
+        bio: document.getElementById("profileBioInput").value
+      });
+      showToast("Profile details updated.");
+    } catch (error) {
+      showToast(`Could not update profile details: ${error.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Save profile";
     }
   });
 
@@ -201,8 +252,8 @@
       showToast("Choose a video or picture and enter a title.");
       return;
     }
-    if (!file.type.startsWith("video/") && !file.type.startsWith("image/")) {
-      showToast("Choose a supported video or image file.");
+    if (!file.type.startsWith("video/") && !file.type.startsWith("image/") && !file.type.startsWith("audio/")) {
+      showToast("Choose a supported video, image, or audio file.");
       return;
     }
     if (file.size > MAX_MEDIA_SIZE) {
@@ -228,7 +279,7 @@
         id: crypto.randomUUID(),
         title,
         description: document.getElementById("mediaDescription").value.trim(),
-        media_type: file.type.startsWith("video/") ? "video" : "image"
+        media_type: file.type.startsWith("audio/") ? "audio" : file.type.startsWith("video/") ? "video" : "image"
       }, file, (uploaded, total) => {
         const percentage = total ? Math.floor((uploaded / total) * 100) : 0;
         progressFill.style.width = `${percentage}%`;
@@ -262,6 +313,7 @@
       }
       locked.hidden = true;
       app.hidden = false;
+      await loadProfileDetails().catch(error => showToast(`Could not load profile details: ${error.message}`));
       try {
         await loadItems();
       } catch (error) {
