@@ -2,7 +2,7 @@ const MAX_QUESTION_LENGTH = 1000;
 const MAX_CONTEXTS = 5;
 const MAX_CONTEXT_LENGTH = 3500;
 const MAX_CONTEXT_TOTAL = 16_000;
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 function respond(res, status, body) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -20,7 +20,7 @@ module.exports = async function handler(req, res) {
   if (!apiKey) return respond(res, 503, { error: "The RAG service is not configured yet. Set GEMINI_API_KEY in the server environment." });
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
-    return respond(res, 500, { error: "GEMINI_MODEL contains unsupported characters. Use a Gemini model name such as gemini-2.5-flash-lite." });
+    return respond(res, 500, { error: "GEMINI_MODEL contains unsupported characters. Use a Gemini model name such as gemini-3.8-flash." });
   }
 
   const body = typeof req.body === "string" ? (() => {
