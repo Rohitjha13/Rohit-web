@@ -9,6 +9,9 @@ const MAX_CONTEXTS = 5;
 const STOP_WORDS = new Set("a an and are as at be been but by can do for from had has have he her hers him his how i if in into is it its me my of on or our she so that the their them then there these they this to was we were what when where which who will with you your".split(" "));
 const QUERY_SYNONYMS = {
   ability: ["skill", "expertise", "proficiency"],
+  capability: ["skill", "ability", "competence"],
+  competence: ["skill", "ability", "proficiency"],
+  competency: ["skill", "ability", "proficiency"],
   developer: ["programmer", "engineer", "coder"],
   expertise: ["skill", "ability", "proficiency"],
   family: ["last", "surname"],
@@ -23,6 +26,7 @@ const QUERY_SYNONYMS = {
   surname: ["last", "family"]
 };
 const NAME_SEARCH_TERMS = ["first", "forename", "given", "last", "family", "surname"];
+const SKILL_INDICATORS = new Set("algorithm algorithms backend c c++ css database databases design designing git html java javascript node python react sql".split(" "));
 const NON_NAME_PREFIXES = new Set("about computer core creative digital education hard key personal professional soft technical web work".split(" "));
 const PERSON_NAME_PATTERN = /\b([\p{Lu}][\p{L}'’-]+)\s+([\p{Lu}][\p{L}'’-]+)\b/gu;
 const NAME_CUE_PATTERN = /\b(?:(?:(?:full|student|my)\s+name|name(?:\s+of\s+(?:the\s+)?(?:student|person))?)\s*(?:is|:)|(?:i['’]m|i am|called))\s*([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)+)/gu;
@@ -92,6 +96,69 @@ function createChunks(text, source) {
     if (start + CHUNK_WORDS >= tokens.length) break;
   }
   return result;
+}
+
+function characterNgrams(term) {
+  const padded = `  ${term} `;
+  const ngrams = new Set();
+  for (let index = 0; index < padded.length - 2; index += 1) {
+    ngrams.add(padded.slice(index, index + 3));
+  }
+  return ngrams;
+}
+
+function termSimilarity(left, right) {
+  if (left === right) return 1;
+  if (Math.min(left.length, right.length) >= 4 && (left.startsWith(right) || right.startsWith(left))) return 0.8;
+
+  const leftNgrams = characterNgrams(left);
+  const rightNgrams = characterNgrams(right);
+  let overlap = 0;
+  for (const ngram of leftNgrams) {
+    if (rightNgrams.has(ngram)) overlap += 1;
+  }
+  return (2 * overlap) / (leftNgrams.size + rightNgrams.size);
+}
+
+function fallbackRankChunks(question, queryTerms) {
+  const intentTerms = [];
+  if (/\b(name|who|student|learner|person|identity|last|surname|first|forename)\b/i.test(question)) {
+    intentTerms.push({ terms: NAME_SEARCH_TERMS, weight: 2 });
+  }
+  if (/\b(skill|ability|expertise|proficiency|capabilit\w*|competenc\w*|talent|good at|know|able to|can\s+\w+\s+do)\b/i.test(question)) {
+    intentTerms.push({ terms: ["skill", "ability", "expertise", "proficiency", "technical", "creative"], weight: 2 });
+  }
+
+  return chunks
+    .map((chunk) => {
+      const chunkTerms = new Set(chunk.terms);
+      let score = 0;
+      for (const [queryTerm, queryWeight] of queryTerms) {
+        let bestSimilarity = 0;
+        for (const chunkTerm of chunkTerms) {
+          bestSimilarity = Math.max(bestSimilarity, termSimilarity(queryTerm, chunkTerm));
+        }
+        if (bestSimilarity >= 0.35) score += queryWeight * bestSimilarity;
+      }
+      for (const intent of intentTerms) {
+        if (intent.terms.some((term) => chunkTerms.has(term))) score += intent.weight;
+      }
+      if (intentTerms.some((intent) => intent.terms.includes("skill"))) {
+        let skillEvidence = 0;
+        for (const term of chunkTerms) {
+          if (SKILL_INDICATORS.has(term)) skillEvidence += 1;
+        }
+        score += Math.min(skillEvidence, 6) * 0.5;
+      }
+      if (intentTerms.some((intent) => intent.terms.includes("last") || intent.terms.includes("surname")) &&
+          hasPersonName(chunk.text)) {
+        score += 2;
+      }
+      return { chunk, score };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, Math.min(MAX_CONTEXTS, chunks.length))
+    .map(({ chunk }) => chunk);
 }
 
 async function readDocument(file) {
@@ -267,7 +334,8 @@ function rankChunks(question) {
       if (!queryTerms.has(synonym)) queryTerms.set(synonym, 0.55);
     }
   }
-  if (queryTerms.size === 0) return [];
+  if (chunks.length === 0) return [];
+  if (queryTerms.size === 0) return fallbackRankChunks(question, queryTerms);
 
   const documentFrequency = new Map();
   for (const chunk of chunks) {
@@ -277,7 +345,7 @@ function rankChunks(question) {
   }
 
   const averageLength = chunks.reduce((sum, chunk) => sum + chunk.terms.length, 0) / chunks.length || 1;
-  return chunks
+  const matches = chunks
     .map((chunk) => {
       let score = 0;
       const termCounts = new Map();
@@ -295,6 +363,7 @@ function rankChunks(question) {
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CONTEXTS)
     .map((result) => result.chunk);
+  return matches.length > 0 ? matches : fallbackRankChunks(question, queryTerms);
 }
 
 function addMessage(text, role, sources = []) {
@@ -344,8 +413,8 @@ function addTypingIndicator() {
 
 async function askQuestion(question) {
   const matches = rankChunks(question);
-  if (matches.length === 0) {
-    addMessage("I couldn't find a passage that matches that question in the documents currently in your library. Try rephrasing the question or add a relevant document.", "assistant");
+  if (chunks.length === 0 || matches.length === 0) {
+    addMessage("I couldn't find a relevant passage because there are no usable passages in the documents currently in your library. Add a document with readable text and try again.", "assistant");
     return;
   }
 
