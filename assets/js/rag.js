@@ -7,6 +7,25 @@ const CHUNK_WORDS = 210;
 const CHUNK_OVERLAP = 35;
 const MAX_CONTEXTS = 5;
 const STOP_WORDS = new Set("a an and are as at be been but by can do for from had has have he her hers him his how i if in into is it its me my of on or our she so that the their them then there these they this to was we were what when where which who will with you your".split(" "));
+const QUERY_SYNONYMS = {
+  ability: ["skill", "expertise", "proficiency"],
+  developer: ["programmer", "engineer", "coder"],
+  expertise: ["skill", "ability", "proficiency"],
+  family: ["last", "surname"],
+  first: ["given", "forename"],
+  given: ["first", "forename"],
+  learner: ["student", "pupil"],
+  last: ["surname", "family"],
+  proficiency: ["skill", "ability", "expertise"],
+  programmer: ["developer", "engineer", "coder"],
+  skill: ["ability", "expertise", "proficiency"],
+  student: ["learner", "pupil"],
+  surname: ["last", "family"]
+};
+const NAME_SEARCH_TERMS = ["first", "forename", "given", "last", "family", "surname"];
+const NON_NAME_PREFIXES = new Set("about computer core creative digital education hard key personal professional soft technical web work".split(" "));
+const PERSON_NAME_PATTERN = /\b([\p{Lu}][\p{L}'’-]+)\s+([\p{Lu}][\p{L}'’-]+)\b/gu;
+const NAME_CUE_PATTERN = /\b(?:(?:(?:full|student|my)\s+name|name(?:\s+of\s+(?:the\s+)?(?:student|person))?)\s*(?:is|:)|(?:i['’]m|i am|called))\s*([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)+)/gu;
 
 const fileInput = document.querySelector("#fileInput");
 const addFilesButton = document.querySelector("#addFilesButton");
@@ -30,7 +49,23 @@ function setStatus(message, isError = false) {
 }
 
 function words(text) {
-  return text.toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || [];
+  return (text.toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).map((term) => {
+    if (STOP_WORDS.has(term)) return term;
+    if (term.length > 4 && term.endsWith("ies")) return `${term.slice(0, -3)}y`;
+    if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss")) return term.slice(0, -1);
+    return term;
+  });
+}
+
+function hasPersonName(text) {
+  for (const match of text.matchAll(NAME_CUE_PATTERN)) {
+    if (words(match[1]).length >= 2) return true;
+  }
+  for (const match of text.matchAll(PERSON_NAME_PATTERN)) {
+    const [first, last] = words(`${match[1]} ${match[2]}`);
+    if (!STOP_WORDS.has(first) && !STOP_WORDS.has(last) && !NON_NAME_PREFIXES.has(first)) return true;
+  }
+  return false;
 }
 
 function cleanText(text) {
@@ -49,7 +84,11 @@ function createChunks(text, source) {
 
   for (let start = 0; start < tokens.length; start += step) {
     const content = tokens.slice(start, start + CHUNK_WORDS).join(" ").slice(0, 3000).trim();
-    if (content) result.push({ source, part: result.length + 1, text: content, terms: words(content) });
+    if (content) {
+      const terms = words(content);
+      if (hasPersonName(content)) terms.push(...NAME_SEARCH_TERMS);
+      result.push({ source, part: result.length + 1, text: content, terms });
+    }
     if (start + CHUNK_WORDS >= tokens.length) break;
   }
   return result;
@@ -221,8 +260,14 @@ async function addFiles(fileArray) {
 }
 
 function rankChunks(question) {
-  const queryTerms = [...new Set(words(question).filter((term) => !STOP_WORDS.has(term)))];
-  if (queryTerms.length === 0) return [];
+  const queryTerms = new Map();
+  for (const term of words(question).filter((word) => !STOP_WORDS.has(word))) {
+    queryTerms.set(term, 1);
+    for (const synonym of QUERY_SYNONYMS[term] || []) {
+      if (!queryTerms.has(synonym)) queryTerms.set(synonym, 0.55);
+    }
+  }
+  if (queryTerms.size === 0) return [];
 
   const documentFrequency = new Map();
   for (const chunk of chunks) {
@@ -237,12 +282,12 @@ function rankChunks(question) {
       let score = 0;
       const termCounts = new Map();
       for (const term of chunk.terms) termCounts.set(term, (termCounts.get(term) || 0) + 1);
-      for (const term of queryTerms) {
+      for (const [term, weight] of queryTerms) {
         const frequency = termCounts.get(term) || 0;
         const count = documentFrequency.get(term) || 0;
         if (!frequency || !count) continue;
         const inverseFrequency = Math.log(1 + (chunks.length - count + 0.5) / (count + 0.5));
-        score += inverseFrequency * (frequency * 2.2) / (frequency + 1.2 * (0.25 + 0.75 * chunk.terms.length / averageLength));
+        score += weight * inverseFrequency * (frequency * 2.2) / (frequency + 1.2 * (0.25 + 0.75 * chunk.terms.length / averageLength));
       }
       return { chunk, score };
     })
