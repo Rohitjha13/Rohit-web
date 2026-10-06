@@ -93,21 +93,20 @@ module.exports = async function handler(req, res) {
       let upstreamError = "";
       try {
         const result = await upstream.json();
-        upstreamError = typeof result.error?.message === "string" ? result.error.message : "";
+        upstreamError = typeof result.error?.message === "string"
+          ? result.error.message.split(apiKey).join("[REDACTED]")
+          : "";
       } catch {
         upstreamError = "";
       }
-      console.error("Gemini request failed", {
-        status: upstream.status,
-        model,
-        message: upstreamError
-      });
-      if (upstream.status === 404) {
-        return respond(res, 502, { error: `Gemini model "${model}" was not found. Set GEMINI_MODEL to a model available to your Gemini API project.` });
+      for (const sensitiveValue of [question, ...contexts.flatMap((context) => [context.source, context.text])]) {
+        if (sensitiveValue) upstreamError = upstreamError.split(sensitiveValue).join("[REDACTED]");
       }
-      if (upstream.status === 429) return respond(res, 503, { error: "The AI service is busy or its quota has been reached. Please wait and try again." });
-      if (upstream.status === 401 || upstream.status === 403) return respond(res, 503, { error: "The server-side Gemini API key is invalid or does not have access to this model." });
-      return respond(res, 502, { error: "The AI service could not answer right now. Please try again shortly." });
+      return respond(res, 502, {
+        status: upstream.status,
+        message: upstreamError || "Gemini returned an error without a message.",
+        model
+      });
     }
 
     const result = await upstream.json();
@@ -122,10 +121,17 @@ module.exports = async function handler(req, res) {
     return respond(res, 200, { answer });
   } catch (error) {
     if (error.name === "AbortError") {
-      return respond(res, 504, { error: "The AI request took too long. Please try again." });
+      return respond(res, 504, {
+        status: null,
+        message: "No Gemini HTTP response was received because the request timed out.",
+        model
+      });
     }
-    console.error("Gemini request could not be completed", error);
-    return respond(res, 502, { error: "The AI service could not be reached. Check the server connection and try again." });
+    return respond(res, 502, {
+      status: null,
+      message: "No Gemini HTTP response was received because the request could not connect.",
+      model
+    });
   } finally {
     clearTimeout(timeout);
   }

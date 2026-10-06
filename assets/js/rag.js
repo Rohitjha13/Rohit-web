@@ -437,7 +437,13 @@ async function askQuestion(question) {
     } catch {
       throw new Error("The RAG API returned an unreadable response. Check that the app is deployed with its serverless API.");
     }
-    if (!response.ok) throw new Error(result.error || `The RAG API request failed (${response.status}).`);
+    if (!response.ok) {
+      if (typeof result.message === "string" && typeof result.model === "string") {
+        const geminiStatus = Number.isInteger(result.status) ? `HTTP ${result.status}` : "HTTP status unavailable";
+        throw new Error(`Gemini ${geminiStatus} (${result.model}): ${result.message}`);
+      }
+      throw new Error(result.error || `The RAG API request failed (${response.status}).`);
+    }
     if (typeof result.answer !== "string" || !result.answer.trim()) throw new Error("The AI service returned an empty answer. Please try again.");
     pending.remove();
     addMessage(result.answer, "assistant", matches);
